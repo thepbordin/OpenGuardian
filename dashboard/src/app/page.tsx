@@ -18,7 +18,7 @@ export default function DashboardPage() {
   return (
     <>
       {/* Full-screen rounded dashboard container */}
-      <div className="h-screen bg-neutral-900 p-0 sm:p-3 lg:p-5 overflow-hidden">
+      <div className="h-screen bg-slate-300 p-0 sm:p-3 lg:p-5 overflow-hidden">
         <div className="h-full flex bg-white rounded-none sm:rounded-2xl lg:rounded-3xl shadow-sm overflow-hidden border-0 sm:border sm:border-slate-200/60">
           {/* Icon-only sidebar */}
           <Sidebar activeItem="dashboard" />
