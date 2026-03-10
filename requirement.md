@@ -1,0 +1,261 @@
+# OpenGuardian
+## Requirements Document — Local Network Behavior Monitoring Framework (PoC)
+
+**Version:** 0.1 — PoC  
+**Date:** March 2026  
+**Status:** Draft
+
+---
+
+## 1. Project Overview
+
+An open-source, locally-run framework that monitors user network behavior, constructs Knowledge Graphs from network traffic data, and surfaces behavioral insights for guardians or administrators — with a strong emphasis on privacy and consent.
+
+---
+
+## 2. Scope (PoC)
+
+The PoC targets a **single-device, single-user** setup in a home or school environment. It validates the core pipeline: data ingestion → knowledge graph construction → LLM-based behavior analysis → dashboard & notification output.
+
+---
+
+## 3. Functional Requirements
+
+### 3.1 Data Ingestion — Modular Connector Architecture
+
+The framework uses a **connector-based input model**. Each data source implements its own schema and an adapter that normalizes events into a shared **Graph Event format** at the graph merge layer.
+
+#### Graph Event (Unified Format)
+
+Every connector must produce events conforming to this structure:
+
+```
+{
+  timestamp:   string,       // ISO 8601
+  source:      string,       // connector name e.g. "network", "discord"
+  user_id:     string,       // resolved at graph layer
+  device_id:   string | null,
+  event_type:  string,       // connector-defined e.g. "dns_query", "dm_sent", "server_join"
+  category:    string,       // normalized activity category
+  metadata:    object        // connector-specific fields (not exposed to guardian)
+}
+```
+
+#### Built-in Connectors (PoC)
+
+**Network Connector** — DNS queries and traffic metadata:
+```
+timestamp           | device_id | domain           | category  | bytes_transferred
+2025-03-10 22:14:03 | D01       | roblox.com       | gaming    | 4200
+2025-03-10 22:15:10 | D01       | youtube.com      | video     | 15800
+2025-03-11 08:02:44 | D01       | classroom.google | education | 3100
+```
+
+**Discord Connector** — user activity signals via Discord API/bot:
+
+```
+timestamp           | user_id | event_type   | detail                        | has_media
+2025-03-10 21:05:00 | U01     | server_join  | server: "Roblox Trading"      | false
+2025-03-10 21:47:22 | U01     | dm_sent      | recipient_type: new_contact   | true
+2025-03-10 22:10:05 | U01     | dm_frequency | new_contact_messages: 14      | false
+```
+
+Discord-specific fields captured: `server_join`, `new DM contact`, `DM frequency with new contacts`, `media/image sent in DM`
+
+**Location Connector** *(optional)* — if a location tracking app is enabled by the guardian:
+```
+timestamp           | user_id | event_type      | detail
+2025-03-11 15:30:00 | U01     | location_change | zone: "unknown_area"
+```
+
+#### Adding New Connectors
+
+To add a new connector, a developer implements:
+1. A schema definition for the source's raw data
+2. An adapter that maps raw events → Graph Event format
+3. A connector manifest (`connector.json`) declaring the connector name, data fields, and privacy classification of each field
+
+New connectors can be added by dropping them into the `/connectors` directory — no changes to core framework required.
+
+---
+
+---
+
+### 3.2 Entity & Knowledge Graph Model
+
+**Entities:**
+- **User** — a named person assigned manually during onboarding
+- **Device** — a single network device (PoC scope: one device)
+- **Activity** — a domain category (e.g., `gaming`, `education`, `social`, `streaming`)
+
+**Relationships:**
+- `User → owns → Device` (manual assignment)
+- `Device → accessed → Activity` (inferred from traffic logs)
+- `Activity → occurred_at → TimeSlot` (temporal context)
+
+**Graph construction:**
+- Built incrementally from incoming traffic logs
+- Embedding techniques used to enrich entity relationships
+- Semantic captioning added to improve LLM understanding of activity patterns
+
+---
+
+### 3.3 Onboarding
+
+- Duration: **1 week**
+- Guardian manually assigns a device to a user during setup
+- Guardian provides basic user context (e.g., age, school schedule)
+- During the onboarding week, the LLM observes traffic patterns and collaborates with the guardian to establish a **behavioral baseline**
+- The system does not flag anomalies during the onboarding period
+- At the end of onboarding, the system confirms baseline is ready and monitoring begins
+
+---
+
+### 3.4 Behavior Analysis & Anomaly Detection
+
+- **LLM-driven** — no hardcoded numeric thresholds in PoC
+- The LLM reviews behavior against the established baseline and flags meaningful deviations
+- Anomaly types detected:
+
+| Anomaly Type | Example |
+|---|---|
+| New domain category | First appearance of VPN or adult content sites |
+| Time-of-day shift | Social media accessed at 2am when normally used after school |
+| Frequency spike | Gaming sessions increase from 1hr/day to 6hr/day |
+| Duration anomaly | Unusually long or short sessions vs. baseline |
+| Activity drop-off | School platforms no longer accessed during school hours |
+
+- Each flag includes a **plain-English explanation** generated by the LLM
+- Flags are rated by severity (informational / warning / critical) — LLM-assessed
+
+---
+
+### 3.5 Known Risks — Extendable Risk Pattern Library
+
+The system supports **Known Risk files** — structured markdown documents that describe known behavioral risk patterns. The LLM loads relevant files from the `/known-risks` directory as context during analysis, enabling it to recognize specific real-world incident patterns beyond generic anomaly detection.
+
+#### Skill File Format
+
+```markdown
+# [Skill Name]
+## Risk Type
+e.g. grooming, radicalization, self-harm
+
+## Context
+Plain-language description of the real-world incident or pattern this skill is based on.
+
+## Behavioral Signals
+- Signal 1 (e.g. active on platform X)
+- Signal 2 (e.g. sudden shift to private messaging)
+- Signal 3 (e.g. new unknown contacts + image transfers)
+
+## Progression Pattern
+Describe the typical sequence of behavioral changes that indicate risk escalation.
+e.g. Gaming platform → Private messaging app → Cloud storage access
+
+## Cross-Connector Signals
+List which connectors are relevant and what to look for in each.
+- network: DNS queries to [domain category]
+- discord: new DM contacts, image sent, server joins
+- location: (if available) movement to unknown zones
+
+## Severity
+critical / warning
+
+## Sources
+Links or references to the real-world case or research this is based on.
+```
+
+#### Example: `risk_grooming_roblox.md`
+
+A known risk file describing the grooming-to-exploitation progression pattern observed in Roblox abuse cases — starting with gaming platform activity, transitioning to private Discord DMs with a new contact, image transfers, then cloud storage access. When the LLM detects this cross-connector sequence, it fires a **critical flag** citing this file by name with a plain-English explanation for the guardian.
+
+#### Naming Convention
+
+Skill files follow the `risk_[type]_[platform].md` format, stored under a `/known-risks` directory:
+
+| File Name | Description |
+|---|---|
+| `risk_grooming_roblox.md` | Grooming progression originating from Roblox |
+| `risk_grooming_discord.md` | Grooming via Discord DMs and server joins |
+| `risk_radicalization_discord.md` | Radicalization pipeline through Discord communities |
+
+- `[type]` — the danger category: `grooming`, `radicalization`, `exploitation`, `self-harm`, etc.
+- `[platform]` — the originating platform. Use `general` for cross-platform or platform-agnostic patterns (e.g. `risk_grooming_general.md`)
+
+#### Adding Known Risks
+
+- **Developers / community:** Submit via pull request to the `/known-risks` directory in the repo
+- **Guardians / admins:** Upload `.md` files directly through the dashboard
+- Both methods place the file in the same `/known-risks` directory — the LLM picks them up automatically on next analysis cycle
+
+---
+
+### 3.6 LLM Integration
+
+- **Provider-agnostic** — supports OpenAI, Anthropic, Ollama (local), or any compatible API
+- Integrated via a **common adapter interface** — swap providers without changing core logic
+- LLM responsibilities:
+  - Interpret onboarding traffic and help establish baseline
+  - Summarize weekly behavior patterns
+  - Detect and explain anomalies in real time
+  - Load and apply known risk files from `/known-risks` during analysis cycles
+  - Generate guardian-facing report narratives
+- LLM context includes: activity categories, time patterns, behavioral history, and loaded known risk files — **never raw domains**
+
+---
+
+### 3.7 Privacy & Data Handling
+
+- Guardians see **activity categories only** — not specific domains visited
+- Raw domain logs are used internally for graph construction and are not exposed in reports
+- Data is stored and processed **locally only**
+- Consent must be obtained from the guardian before onboarding begins
+- System acknowledges the limitation that users (e.g., children) may attempt to manipulate data inputs
+
+---
+
+### 3.8 Outputs
+
+#### Dashboard
+- Displays behavior trends over time (by activity category)
+- Highlights flagged anomalies with LLM-generated explanations
+- Shows baseline vs. current behavior comparison
+- Accessible to guardians and administrators
+
+#### Email Notifications
+- **Real-time alerts** for critical-severity anomaly flags (LLM-assessed)
+- Weekly digest summary for informational/warning-level changes
+- Recipient and notification level configurable by the guardian
+
+---
+
+## 4. Non-Functional Requirements
+
+| Requirement | Description |
+|---|---|
+| Privacy-by-design | No raw personal data exposed in outputs; category-level only |
+| Local execution | All processing runs on local infrastructure; no cloud dependency |
+| Modularity | Data sources and LLM providers are pluggable modules |
+| Open-source | Codebase publicly available; self-hostable |
+| Graceful degradation | Core monitoring functions work even if LLM is unavailable |
+
+---
+
+## 5. Out of Scope (PoC)
+
+- Multi-device support
+- Multi-user households
+- Deep packet inspection
+- Mobile app
+- Cloud deployment
+- Automated consent flow UI
+
+---
+
+## 6. Open Questions & Future Considerations
+
+- How should the system handle VPN usage that masks DNS queries?
+- What is the data retention policy for raw traffic logs after graph construction?
+- How will the system handle school holidays or schedule changes affecting baseline?
+- Multi-admin support for school deployments (future phase)

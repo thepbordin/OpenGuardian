@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        .digest { border: 1px solid #ddd; padding: 20px; border-radius: 5px; }
+        .header { background-color: #0275d8; color: white; padding: 10px; font-weight: bold; }
+        .flag { margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
+        .severity-warning { color: #f0ad4e; font-weight: bold; }
+        .severity-info { color: #5bc0de; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="digest">
+        <div class="header">
+            OpenGuardian: Weekly Behavior Digest
+        </div>
+        <div class="content">
+            <p>Here is a summary of notable, non-critical trajectory shifts observed this week.</p>
+            
+            {% for flag in flags %}
+            <div class="flag">
+                <p>
+                    <span class="severity-{{ 'warning' if flag.severity == 'warning' else 'info' }}">[{{ flag.severity | upper }}]</span> 
+                    <strong>{{ flag.category }}</strong>
+                </p>
+                <p>{{ flag.reasoning }}</p>
+            </div>
+            {% endfor %}
+            
+            {% if not flags %}
+            <p>No noticeable behavioral flags recorded this period.</p>
+            {% endif %}
+            
+            <hr>
+            <p><em>Note: OpenGuardian digests analyze behavior trajectories probabilistically locally to respect device privacy constraints.</em></p>
+        </div>
+    </div>
+</body>
+</html>

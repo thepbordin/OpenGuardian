@@ -1,0 +1,18 @@
+{
+    "name": "network",
+    "version": "1.0.0",
+    "data_fields": [
+        "timestamp",
+        "device_id",
+        "domain",
+        "category",
+        "bytes_transferred"
+    ],
+    "privacy_class": {
+        "timestamp": "aggregate_ok",
+        "device_id": "derived_ok",
+        "domain": "raw_private",
+        "category": "aggregate_ok",
+        "bytes_transferred": "aggregate_ok"
+    }
+}
